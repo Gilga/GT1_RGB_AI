@@ -1,0 +1,42 @@
+Wo will ich hin? Lohnende Ziele
+Welche Wege gehe ich?
+
+Exaktes ausrechnen wird nicht funktionieren - zu ineffizient...
+Latenz verhindert genaues steuern
+
+Heat map/Influence map
++ runterskalieren
+
+Durchschnitt bilden?
+-> Hindernisse und Rand ändern Größe der begehbaren Fläche
+
+Aktualisieren nur Bereiche, die Änderung erhalten haben
+- kleine Änderungen ignorieren? (z.B. 10 Pixel in Nachbarzelle geändert)
+- sehr kostenintensiv (alternativ alle x (Milli)Sekunden aktualisieren)
+
+verschiedene Größen der Raster stufenweise
+-> hierarchisch organisieren (z.B. mit Quadtree - siehe Wikipedia)
+z.B. grob und fein
+-> Änderungen von niedrigster Ebene nach oben "durchreichen"
+- optimalerweise nur eine Addition/Subtraktion pro Ebene
+
+Was wenn potentielles Ziel genau auf Grenze?
+- zweites Raster drüberlegen mit bewusst anderen Grenzen
+
+Raster auch für Wegesuche verwenden?!
+-> Achtung! Nur weil man durch Zelle geht, bekommt man nicht alle Punkte. -> Raster muss fein genug sein für ausreichende Näherung
+
+- alles bisher war auf Farben bezogen
+- Was wenn ich Gegner vermeiden/angreifen möchte?
+- Kombination beider Strategien denkbar
+
+Einflussradius ("Streuradius") der gegnerischen Pinsel (abgestuft - für mögliche Bewegungen in direkter Zukunft)
+Was wenn sich zwei gegnerische Pinsel überlappen? Addieren oder Maximum?
+Regelmäßiges aktualisieren notwendig?
+
+g(i) -> g(i) + Summe(w(i,j) * T(i,j))
+g - Gewicht der Kante
+T - taktischer Wert aus Datenstruktur (negativ da Gewicht entgegen gewirkt wird)
+w - Gewichtung abhängig von Figur/Aufgabe
+
+Bei Wegesuche jede Kante nur einmal übergehen (Wert würde sich ja ändern)

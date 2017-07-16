@@ -1,0 +1,24 @@
+Kooperative Wegesuche
+
+- gemeinsam Ziel erreichen
+- gegenseitiges Behindern
+
+- vollständige Verfahren vs. unvollständige Verfahren
+- vollständig: alle Agenten simulan bewegen, Optimum finden, viel Rechenzeit
+- unvollständig: "Tricks", ggf. kein Optimum aber dafür schneller
+
+"Metagraph"
+- SEHR ineffizient (Faktorial-viele Knoten)
+- benötigt gleiche Kantenlängen
+
+Cooperative A* (CA)
+- und viele Sonderformen für verschiedene Sonderfälle
+- Figuren nacheinander bewegen (Prioritäten)
+- 3D-Graph (x-y-time)
+- Pro Schritt 1 Feld in Zeit-Richtung
+- Warten als Option
+- Im Ziel = immer noch beweglich
+
+Enthalten sein müssen:
+- Bewegungsplanung (A*, Dijkstra, ...)
+- Erfassung und Nutzung der Farbinformationen (Quadtree, ...)

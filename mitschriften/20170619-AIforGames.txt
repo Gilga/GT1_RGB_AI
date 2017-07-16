@@ -1,0 +1,43 @@
+Bewegung auf dem Spielfeld
+
+Achtung: Rand + Hindernisse
+
+Lokal schauen, wo frei ist? -> zu primitv und simpel zu implementieren
+
+lokale vs globale Informationen
+
+punktförmige Charakterere -> kein Hängenbleiben an Hindernissen
+globale Informationen vorhanden
+
+Dijkstra-Algorithmus / A*-Algorithmus
+- basiert auf Graphen -> muss bei uns erst erstellt werden
+-> Jeder Pixel ist Knoten
+-> Raster um Anzahl zu reduzieren
+-> Punkt in der Nähe der Hindernisse erstellen -> direkte Verbindung enthält keine schwarzen Pixel
+	-> eventuell nicht optimierter Weg
+	-> Start und Ziel dem Graphen dynamisch hinzufügen
+	-> kürzester Weg vs. am meisten Punkte auf dem Weg
+	
+SSSP (Single Source Shortest Path)
+gewichtete Kanten Graphen
+Algorithmus auf Wikipedia
+
+Bellman-Ford
+------------
+falls negative Gewichte vorhanden sind
+
+Floyd-Warshall-Algorithmus
+--------------------------
+Wenn zwei Knoten über dritten verbunden sind, dann sind die Kosten die Summe der Teilkosten
+
+for A:1...n
+	for B:1...n
+		distance(A, B) = Kantengewicht(A,B) //sonst unendlich 
+	
+for C=1...n
+	for A=1...n
+		for B=1...n
+			distance(A, B) = min (distance(A,B), distance(A,C)+distance(C,B))
+			
+			
+- maximale Weglänge als Limit für Suche im Graphen

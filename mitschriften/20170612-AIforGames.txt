@@ -1,0 +1,35 @@
+Le wild "strategy"-game appears
+
+Name: "kipifub"
+
+- man kann nicht ausscheiden
+
+Spielwelt:
+- wolkenartig
+- Loch in der Mitte
+- innerhalb kann man sich bewegen
+- kubische Bezierkurven bilden Hindernisse
+- zufällig generierte Welt
+
+- max 1024x1024 LE groß
+- 3 Spieler Rot, Grün, Blau
+- man bemalt die Welt mit seiner Farbe
+- meiste Fläche am Ende gewinnt
+- mehrere Einheiten    (Sprühdose, 	kleiner Pinsel, großer Pinsel)
+	- Geschwindigkeit	2,1		 	1				0,68
+	- Radius			40		 	15				30
+	- Intensität		30	 		160				75
+	- Werte möglicherweise falsch
+- jeden Tick male ich Kreis
+- man zieht Farbe der Gegner ab und fügt eigene hinzu (aber nicht alles auf einmal)
+- man kann auch hinter Hindernissen malen
+- keine Kollision (nicht durch Hindernisse)
+- Steuerung (Bewegungsrichtung(x,y))
+- welche Farbe hat welche Koordinate
+- Events (welche Figur bewegt sich wo hin?)
+- Seed für Level (für Debugging) in Konsole
+- Positionierung der Figuren zufällig (gewisser Abstand zur Mitte)
+
+- strategische Frage: übermale ich oder male ich wo niemand anders ist?
+
+- Koordinaten (y = 0 ist oben)
