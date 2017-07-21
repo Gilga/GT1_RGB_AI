@@ -62,31 +62,11 @@ public class Grid
 	
 	private void updateTile (int xIndex, int yIndex)
 	{
-		
-		networkClient.getBoard(xIndex, yIndex);
-		
+		networkClient.getBoard(xIndex, yIndex);	
 	}
 	
 	private static int getIndex (int position) 
 	{
 		return position / tileSize; // integer division - no remainder
-	}
-	
-	class Node implements Comparable<Node>
-	{
-		int heuristicValue; //Distance to target node - ignoring obstacles
-		int movementCost; //Cost for moving to next mode
-		int totalCost; //heuristicValue + movementCost
-		
-		Node parent; //tile from which this tile was reached during A*
-		public boolean closed;
-
-		
-		@Override
-		public int compareTo(Node arg0) {
-			// TODO Auto-generated method stub
-			return 0;
-		}
-		
 	}
 }
