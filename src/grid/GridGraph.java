@@ -18,6 +18,18 @@ public class GridGraph
 		Node parent; //tile from which this tile was reached during A*
 		public boolean closed;
 		
+		public void initializeGraph()
+		{
+			//set up nodes
+			//TODO: one @start or once per A* call?
+		}
+		
+		//TODO: import Position (can't import from default package)
+		public int[] getShortestPath(int fromX, int fromY, int toX, int toY){
+			//TODO: return calculated path
+			return null;
+		}
+		
 		@Override
 		public int compareTo(Node other) 
 		{
