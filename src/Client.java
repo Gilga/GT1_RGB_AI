@@ -166,6 +166,60 @@ public class Client extends Thread {
         return false;
     }
     
+	Position[] ways = new Position[]{
+			new Position(+1,0),
+    		new Position(-1,0),
+    		new Position(0,+1),
+    		new Position(0,-1),
+    		new Position(+1,+1),
+    		new Position(+1,-1),
+    		new Position(-1,+1),
+    		new Position(-1,-1)
+	};
+    
+	// TODO (still testing...)
+    void Dijkstra(int bot)
+	{
+    	Position p = pos[bot];
+    	Position t = targetPos[bot];
+    	
+    	float d = Position.distance(p, t);
+    	
+    	//!ColorPixel.isColorDominant(getBoard(t),color)
+    	ArrayList<Integer> list = new ArrayList<>();
+    	ArrayList<ArrayList<Integer>> doNotChoose = new ArrayList<>();
+    	list.add(-1);
+    	
+		Position n;
+		int lastID=-1;
+		float d2 = 0;
+		boolean found = false;
+		
+    	while(d>0){
+    		if(list.size()>doNotChoose.size()) doNotChoose.add(new ArrayList<>());
+    		ArrayList<Integer> filter = doNotChoose.get(list.size()-1);
+    		
+    		found=false;
+    		for(int i=0;i<ways.length;i++) {
+    			n = ways[i];
+    			if (!filter.contains(i) && isValid(Position.add(p,n))){
+    				d2 = Position.distance(p, t);
+    				if(d2<d) { lastID=i; d=d2; found = true; };
+    			}
+    		}
+    		if(found) { list.add(lastID); p = ways[lastID]; }
+    		else {
+    			int index = list.size()-1;
+    			list.remove(index);
+    			if(list.size()<=0) break; // can not move?
+    			index--;
+      			doNotChoose.get(index).add(lastID);
+    			p = ways[list.get(index)];
+    			d = Position.distance(p, t);
+    		}
+    	}
+	}
+    
 	void SpiralSearch(int bot, float size)
 	{
 		Position p = pos[bot];
