@@ -2,6 +2,7 @@ import java.awt.Desktop;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.concurrent.ThreadLocalRandom;
 
 import javax.imageio.ImageIO;
@@ -54,15 +55,23 @@ public class Client extends Thread {
     
     boolean isValid(Position p) {
     	if(p.x<0||p.y<0||p.x>1023||p.y>1023) return false;
-		//return board[(int)p.x][(int)p.y] != 0x0; // working incorrectly
-		return networkClient.isWalkable((int)p.x, (int)p.y);
+    	int[] v = p.toInt();
+		//return board[v[1]][v[0]] != 0x0; // working incorrectly
+		return networkClient.isWalkable(v[0], v[1]);
     }
 
     int getBoard(Position p){
     	if(!isValid(p)) return 0x0;
-    	//return board[(int)p.y][(int)p.x]; // working incorrectly
-    	return 0xFF000000 | networkClient.getBoard((int)p.x, (int)p.y);
+    	int[] v = p.toInt();
+    	//return board[v[1]][v[0]]; // working incorrectly
+    	return 0xFF000000 | networkClient.getBoard(v[0], v[1]);
     }
+    
+    void setBoard(Position p, int color){
+    	if(!isValid(p)) return;
+    	int[] v = p.toInt();
+    	board[v[1]][v[0]] = color;
+     }
     
     boolean canMoveTo(int i, Position t, float step) {
     	Position p=pos[i];
@@ -109,6 +118,14 @@ public class Client extends Thread {
     	}
     }
     
+    void setDirection(int i, Position t) {
+    	if(!Position.equals(targetPos[i], t)) {
+    		ang[i] = new Float(Position.calcRotationAngleInDegrees(pos[i],t));
+    		targetPos[i]=t;
+    		infinity[i]=false;
+    	}
+    }
+    
     boolean boardHasWhite() {
     	Position p = new Position();
     	for(p.y=0;p.y<board.length;p.y++){
@@ -120,60 +137,125 @@ public class Client extends Thread {
     	return false;
     }
     
-    boolean colorIsValid(int i, int rgb) {
+    boolean colorIsValid(int bot, int rgb) {
 		   return (hasWhite && (
-					   (i==0 && ColorPixel.getBrightness(rgb) >= 1f)
-					|| (i==1 && rgb != color)
-					|| (i==2 && ColorPixel.isColorNotDominantOrWhite(rgb,color))
+					   (bot == 0 && ColorPixel.getBrightness(rgb) >= 1f)
+					|| (bot == 1 && rgb != color)
+					|| (bot == 2 && ColorPixel.isColorNotDominantOrWhite(rgb,color))
 					))
 		|| (!hasWhite && !ColorPixel.isColorDominant(rgb,color));
     	//return (hasWhite && ColorPixel.getBrightness(rgb) >= 1f) ||
     	//		(!hasWhite && ColorPixel.isColorDominant(rgb,color));
     }
     
-    boolean hasWhite = false;
-    void searchFreeSpot(int i) {
+    int z = 0;
+    boolean findRGB(int bot, Position t){
+        int rgb = getBoard(t);
+        
+        if(!isValid(t)||ColorPixel.isColorDominant(rgb,color)) return false;
+        
+        if(colorIsValid(bot,rgb))
+		{
+            setDirection(bot, t);
+			//if(bot == 0) setBoard(t, color);
+        	z++;
+        	
+        	return true;
+		}
+        
+        return false;
+    }
+    
+	void SpiralSearch(int bot, float size)
+	{
+		Position p = pos[bot];
+		Position d = Position.subtract(p, new Position(board[0].length/2, board.length/2));
+		
+		float WH = size/2;
+		float HH = size/2;
+		int t = 0;
+	    int x,y,dx,dy;
+	    x = y = dx =0;
+	    dy = -1;
+	    
+	    for(int i = 0; i < size; i++){
+	    	//double rr = Math.sqrt(Math.pow(x, 2) + Math.pow(y, 2));
+	    	
+	        if ((-WH <= x) && (x <= WH) && (-HH <= y) && (y <= HH))
+	        {
+	        	if(findRGB(bot, new Position(p.x+x,p.y+y))) return;
+	        }
+	        
+	        if( (x == y) || ((x < 0) && (x == -y)) || ((x > 0) && (x == 1-y))){
+	            t = dx;
+	            dx = -dy;
+	            dy = t;
+	        }
 
+	        x += dx;
+	        y += dy;
+	    }
+	}
+
+	void CircleSearch(int bot, float size)
+	{
+		Position p = pos[bot];
+    	for(float r=1;r<size/2;r++) {
+    		float r2 = r*r;
+	        // iterate through all x-coordinates
+	        for (float i = p.y-r; i <= p.y+r; i++) {
+	        	float di2 = (i-p.y)*(i-p.y);
+	            // iterate through all y-coordinates
+	            for (float j = p.x-r; j <= p.x+r; j++) {
+	            	float di1 = (j-p.x)*(j-p.x);
+	                // test if in-circle
+	                if (di1 + di2 <= r2) {
+	                	if(findRGB(bot, new Position(j, i))) return;
+	                }
+	            }
+	        }
+    	}
+	}
+	
+	void RadiusSearch(int bot, float size)
+	{
+		Position p = pos[bot];
+     	Position d = null;
+    	float old_ang = ang[bot];
+    	float a = 0;
+     	float z = radius[bot];
+     	float sz = 0;
+     	float sr = 0;
+     	float dd = Position.distance(p,new Position(board[0].length/2, board.length/2));
+     	float rr = dd + board[0].length/2 + board.length/2;
+     	
+    	for(float s=1;s<size;s++) {
+         	sr = 0; //randomAngle(); //non smooth option
+    		sz = s+z/2;
+	    	for(float r=0;r<360;r++) {
+	    		d = Position.angToPosition(old_ang + sr + r);
+
+	    		if(findRGB(bot, p.getNext(bot, d, sz))) return;
+	    	}
+    	}
+	}
+    
+    boolean hasWhite = false;
+    void search(int bot) {
     	hasWhite = boardHasWhite();
     	
-    	boolean found=false;
-    	float old_ang = ang[i];
-    	float a = 0;
-    	Position d = null;
-    	Position t = targetPos[i];
-     	float dist=Position.distance(pos[i],t);
-     	float z = radius[i];
-     	float sz = 0;
-     	Position p = pos[i];
-     	int rgb = getBoard(t);
-     	float sr = 0;
-     	
-     	if(infinity[i] || !colorIsValid(i,rgb) || dist<=7.5f)
-     	{
-	    	for(float s=1;s<1000;s++) {
-	         	sr = 0; //randomAngle(); //non smooth option
-	    		sz = s+radius[i]/2;
-		    	for(float r=0;r<360;r++) {
-	    			a = old_ang + sr + r;
-		    		d = Position.angToPosition(a);
-		    		t = p.getNext(i, d, sz);
-	    			rgb = getBoard(t);
-	    			
-	    			if(!isValid(t)||ColorPixel.isColorDominant(rgb,color)) continue;
+    	Position t = targetPos[bot];
+    	float dist=Position.distance(pos[bot],t);
+    	int rgb = getBoard(t);
+    	int width = board[0].length;
+    	int height = board.length;
+    	int size = width*height;
 
-		    		if(colorIsValid(i,rgb))
-		    		{
-		    			//setInfiniteDirection(i,b);
-		    			setDirection(i, a, sz);
-		    			found=true;
-		    			break;
-		    		}
-		    	}
-		    	if(found) break;
-	    	}
-	    	
-			if(!found) setDirection(i, a, 0);
-    	}
+    	if(!(infinity[bot] || !colorIsValid(bot,rgb) || dist<=7.5f)) return;
+    	
+    	if(name == "SpiralSearch") SpiralSearch(bot, size*3);
+    	else if(name == "CircleSearch") CircleSearch(bot, 200);
+    	else if(name == "RadiusSearch") RadiusSearch(bot, size*3);
     }
     
     void findObstacle(int i) {
@@ -209,7 +291,7 @@ public class Client extends Thread {
     Position[] waitPos = new Position[]{new Position(),new Position(),new Position()};
     
     void setNewTarget(int i) {
-    	searchFreeSpot(i);
+    	search(i);
 
     	if(wait[i]>=3) {
     		if(Position.equals(waitPos[i],pos[i]))
@@ -257,11 +339,18 @@ public class Client extends Thread {
     	int height = board.length;
     	BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
 
+    	int[] t1 = targetPos[0].toInt();
+    	int[] t2 = targetPos[1].toInt();
+    	int[] t3 = targetPos[2].toInt();
+    	
     	int x = 0;
     	int y = 0;
     	int[] buffer = new int[width*height];
     	for(int i = 0; i<buffer.length; i++) {
-    		buffer[i] =  board[y][x];
+    		if(x == t1[0] && y == t1[1]) buffer[i] = 0xFF000000;
+    		else if(x == t2[0] && y == t2[1]) buffer[i] = 0xFF000000;
+    		else if(x == t3[0] && y == t3[1]) buffer[i] = 0xFF000000;
+    		else buffer[i] =  board[y][x];
     		x++;
     		if(x>=width) { x=0; y++; }
     	}
@@ -323,7 +412,8 @@ public class Client extends Thread {
 			    		if(bot == 0) {
 
 			    			if(!foundStartPos){
-			    				color = ColorPixel.getDominantColor(getBoard(p));
+			    				//myID == 0 ? 0xFFFF0000 : (myID == 1 ? 0xFF00FF00 : (myID == 2 ? 0xFF0000FF : 0));
+			    				color = ColorPixel.getDominantColor(0xFF000000 | networkClient.getBoard(x,y));
 				    			System.out.printf("%d: %s color\n", myID, ColorPixel.getColorStr(color));
 			    			}
 			    			foundStartPos = true;
@@ -335,11 +425,6 @@ public class Client extends Thread {
 			if(foundStartPos) {
 				updateBoard();
 				
-				if(myID == 0 && g==500) {
-					generatePicture();
-				}
-				g++;
-				
 				setNewTarget(0);
 				setNewTarget(1);
 				setNewTarget(2);
@@ -347,6 +432,11 @@ public class Client extends Thread {
 				move(0);
 				move(1);
 				move(2);
+				
+				if(g==0) {
+					//generatePicture();
+				}
+				g++;
 			}
 			
 			try {

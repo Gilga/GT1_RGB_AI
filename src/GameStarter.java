@@ -32,9 +32,9 @@ public class GameStarter {
 		    	Thread server = new Server(serverArgs);
 		    	
 		    	Thread t1;
-				t1 = new Client(name + " 0",null);
-		    	Thread t2 = new Client(name + " 1",null);
-		    	Thread t3 = new Client(name + " 2",null);
+				t1 = new Client("SpiralSearch",null);
+		    	Thread t2 = new Client("CircleSearch",null);
+		    	Thread t3 = new Client("RadiusSearch",null);
 		    	
 		    	server.start();
 		    	t1.start();
