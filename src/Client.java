@@ -3,19 +3,36 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 import javax.imageio.ImageIO;
 
-import lenz.htw.kipifub.ColorChange;
-import lenz.htw.kipifub.net.NetworkClient;
+import lenz.htw.zpifub.*;
+import lenz.htw.zpifub.net.*;
 
 public class Client extends Thread {
+	
+	class PowerUp {
+		public Position pos = new Position();
+		public PowerupType type = null;
+		public PowerUp(Position pos, PowerupType type) { this.pos=pos; this.type=type; };
+		
+		public String toString() {
+			return ""+type+pos;
+		}
+	}
 	
 	NetworkClient networkClient =  null;
 	String host = null;
     String name = null;
     int myID = 0;
+    int latency = 0;
+    int generatePictureSec = 10;
+    boolean generatePictureEnabled = false;
+    
+    List<PowerUp> powerupTypes = new ArrayList<>();
     
     Client(String name, String host) throws IOException {
     	super(name);
@@ -26,6 +43,8 @@ public class Client extends Thread {
     ThreadLocalRandom tlr = null;
     
     int[][] board = new int[1024][1024];
+    int[][] boardDebug = new int[1024][1024];
+    
     int color = 0;
     int[] radius = new int[]{0,0,0}; // radius
     float[] ang = new float[]{0,0,0};
@@ -33,55 +52,67 @@ public class Client extends Thread {
     Position[] oldPos = new Position[]{new Position(),new Position(),new Position()};
     Position[] oldDir = new Position[]{new Position(),new Position(),new Position()}; // direction
    
-    int[] wait = new int[]{0,0,0};
+    long[] wait = new long[]{0,0,0};
     int[] hitWall = new int[]{0,0,0};
     
     Position[] targetPos = new Position[]{new Position(),new Position(),new Position()};
 
     boolean[] infinity = new boolean[]{false,false,false};
     
-    void move(int i) {
-    	Position p = pos[i];
-    	Position t = targetPos[i];
+    void move(int bot) {
+    	Position p = pos[bot];
+    	Position t = getWayPoint(bot); //getPassablePosition(getWayPoint(bot),radius[bot]/2);
     	Position d = new Position(t.x-p.x, t.y-p.y);
-    	
-		if(!Position.equals(oldDir[i], d)){
-			oldDir[i]=d;
-			networkClient.setMoveDirection(i, d.x, d.y);
-    		//System.out.printf("(%d|%d){%d} [%f,%f] -> [%f,%f]\n", myID, i, radius[i], pos[i].x, pos[i].y, d.x, d.y);
+
+		if(!Position.equals(oldDir[bot], d)){
+			oldDir[bot]=d;
+			networkClient.setMoveDirection(bot, d.x, d.y);
+    		//System.out.printf("(%d|%d){%d} [%f,%f] -> [%f,%f]\n", myID, bot, radius[bot], pos[bot].x, pos[bot].y, d.x, d.y);
 		}
     }
      
     
     boolean isValid(Position p) {
-    	if(p.x<0||p.y<0||p.x>1023||p.y>1023) return false;
+    	//if(p.x<0||p.y<0||p.x>1023||p.y>1023) return false;
     	int[] v = p.toInt();
-		//return board[v[1]][v[0]] != 0x0; // working incorrectly
+		//return board[v[1]][v[0]] != 0x0;
 		return networkClient.isWalkable(v[0], v[1]);
     }
 
     int getBoard(Position p){
     	if(!isValid(p)) return 0x0;
     	int[] v = p.toInt();
-    	//return board[v[1]][v[0]]; // working incorrectly
+    	//return board[v[1]][v[0]];
     	return 0xFF000000 | networkClient.getBoard(v[0], v[1]);
     }
     
     void setBoard(Position p, int color){
     	if(!isValid(p)) return;
     	int[] v = p.toInt();
-    	board[v[1]][v[0]] = color;
+    	//board[v[1]][v[0]] = color;
+    	boardDebug[v[1]][v[0]] = color;
      }
     
-    boolean canMoveTo(int i, Position t, float step) {
-    	Position p=pos[i];
+    void clearBoard() {
+    	Position p = new Position();
+    	for(p.y=0;p.y<board.length;p.y++){
+        	for(p.x=0;p.x<board[0].length;p.x++){
+        		int rgb = getBoard(p);
+        		if(!(rgb == 0x0 || rgb == 0xFFFFFFFF))
+        			setBoard(p, 0xFFFFFFFF);
+        	}
+    	}
+    }
+    
+    boolean canMoveTo(int bot, Position t, float step) {
+    	Position p=pos[bot];
 
     	float dist=Position.distance(p,t);
     	if(dist<=0) return false;
   
-    	Position d = Position.angToPosition(ang[i]);
+    	Position d = Position.angToPosition(ang[bot]);
    	
-    	step=(radius[i]/2+1);
+    	step=(radius[bot]/2+1);
     	
     	if(!isValid(Position.add(p, Position.mul(d,new Position(step))))) return false;
 
@@ -104,25 +135,29 @@ public class Client extends Thread {
     	return tlr.nextInt(0, 360);
     }
     
-    void setInfiniteDirection(int i, float a) {
-    	setDirection(i,a, Integer.MAX_VALUE);
-    	infinity[i]=true;
+    void setRandomDirection(int bot) {
+    	if(!infinity[bot]) setInfiniteDirection(bot, randomAngle());
     }
     
-    void setDirection(int i, float a, float v) {
-    	Position t = pos[i].getNext(i, Position.angToPosition(a), v);
-    	if(!Position.equals(targetPos[i], t)) {
-    		ang[i] = a;
-    		targetPos[i]=t;
-    		infinity[i]=false;
+    void setInfiniteDirection(int bot, float a) {
+    	setDirection(bot, a, Integer.MAX_VALUE);
+    	infinity[bot]=true;
+    }
+    
+    void setDirection(int bot, float a, float v) {
+    	Position t = pos[bot].getNext(Position.angToPosition(a), v);
+    	if(!Position.equals(targetPos[bot], t)) {
+    		ang[bot] = a;
+    		targetPos[bot]=t;
+    		infinity[bot]=false;
     	}
     }
     
-    void setDirection(int i, Position t) {
-    	if(!Position.equals(targetPos[i], t)) {
-    		ang[i] = new Float(Position.calcRotationAngleInDegrees(pos[i],t));
-    		targetPos[i]=t;
-    		infinity[i]=false;
+    void setDirection(int bot, Position t) {
+    	if(!Position.equals(targetPos[bot], t)) {
+    		ang[bot] = new Float(Position.calcRotationAngleInDegrees(pos[bot],t));
+    		targetPos[bot]=t;
+    		infinity[bot]=false;
     	}
     }
     
@@ -148,7 +183,7 @@ public class Client extends Thread {
     	//		(!hasWhite && ColorPixel.isColorDominant(rgb,color));
     }
     
-    int z = 0;
+    int[] searchState = new int[]{0,0,0};
     boolean findRGB(int bot, Position t){
         int rgb = getBoard(t);
         
@@ -156,9 +191,9 @@ public class Client extends Thread {
         
         if(colorIsValid(bot,rgb))
 		{
-            setDirection(bot, t);
+        	setDirection(bot, t);
+            
 			//if(bot == 0) setBoard(t, color);
-        	z++;
         	
         	return true;
 		}
@@ -167,57 +202,200 @@ public class Client extends Thread {
     }
     
 	Position[] ways = new Position[]{
-			new Position(+1,0),
-    		new Position(-1,0),
-    		new Position(0,+1),
-    		new Position(0,-1),
+			new Position(+1,+0),
     		new Position(+1,+1),
-    		new Position(+1,-1),
+    		new Position(+0,+1),
     		new Position(-1,+1),
-    		new Position(-1,-1)
+    		new Position(-1,+0),
+    		new Position(-1,-1),
+    		new Position(+0,-1),
+    		new Position(+1,-1)
+	};
+	
+	String[] waysStr = new String[]{
+			"r",
+    		"ru",
+    		"u",
+    		"lu",
+    		"l",
+    		"ld",
+    		"d",
+    		"rd"
 	};
     
-	// TODO (still testing...)
-    void Dijkstra(int bot)
+	int wayPointIndex[] = new int[]{0,0,0};
+	ArrayList<ArrayList<Position>> wayPoints = new ArrayList<ArrayList<Position>>();
+
+	boolean hasWayPoints(int bot)
 	{
-    	Position p = pos[bot];
-    	Position t = targetPos[bot];
+		return wayPoints.get(bot).size()>0;
+	}
+	
+	Position getWayPoint(int bot)
+	{
+		return hasWayPoints(bot) && wayPointIndex[bot]<wayPoints.get(bot).size() ? wayPoints.get(bot).get(wayPointIndex[bot]) : targetPos[bot];
+	}
+	
+	void clearWayPoints(int bot)
+	{
+		wayPointIndex[bot] = 0;
+		wayPoints.get(bot).clear();
+	}
+	
+	void updateWayPoints(int bot)
+	{
+		if(!hasWayPoints(bot)) {
+			searchState[bot]=0;
+			return;
+		}
+			
+		Position w = getWayPoint(bot);
+		setBoard(w, 0xFF000000);
+		if(!isValid(w) || Position.distance(pos[bot],w) <= radius[bot] || !colorIsValid(bot,getBoard(getWayPoint(bot)))){
+			wayPointIndex[bot]++;
+		}
+
+		if(wayPointIndex[bot]>=wayPoints.get(bot).size()){
+			clearWayPoints(bot);
+			searchState[bot]=0;
+			System.out.println("done.");
+		}
+	}
+	
+	Position getPassablePosition(Position t, float radius){
+		Position x = t;
+		Position v = t;
+
+		boolean validRadius = true;
+		float rm=8;
+		float rr=360/rm;
+    	for(int dr = 0; dr<=radius;dr++) {
+	    	for(float r=0;r<rm;r++) {
+	    		x = t.getNext(Position.angToPosition(rr*r), dr);
+	    		if(!isValid(x)){
+					validRadius=false;
+	    		} else {
+	    			float d1 = Position.distance(x, t);
+	    			float d2 = Position.distance(v, t);
+	    			if(d1<d2)
+	    				v=x;
+	    		}
+	    	}
+	    	if(!validRadius) break;
+    	}
     	
-    	float d = Position.distance(p, t);
+    	if(!validRadius) return v;
+    	return t;
+	}
+
+	void DijkstraSearch(int bot, int max)
+	{
+		ArrayList<Position> list = new ArrayList<>();
+    	ArrayList<Position> rlist = new ArrayList<>();
+    	ArrayList<Position> filter = new ArrayList<>();
+    	ArrayList<Position> wlist = wayPoints.get(bot);
     	
-    	//!ColorPixel.isColorDominant(getBoard(t),color)
-    	ArrayList<Integer> list = new ArrayList<>();
-    	ArrayList<ArrayList<Integer>> doNotChoose = new ArrayList<>();
-    	list.add(-1);
-    	
-		Position n;
-		int lastID=-1;
-		float d2 = 0;
-		boolean found = false;
+    	Position start = pos[bot];
+    	Position end = targetPos[bot];
+		Position nextPos = start;
+		Position bestPos = start;
+		Position current = start;
+		int bestIndex = 0;
 		
-    	while(d>0){
-    		if(list.size()>doNotChoose.size()) doNotChoose.add(new ArrayList<>());
-    		ArrayList<Integer> filter = doNotChoose.get(list.size()-1);
+		float dist = Position.distance(start, end);
+		float dist_last = -1;
+		float dist_best = dist;
+		float dist_current = dist;
+		int found = 0;
+		Position rp;
+		
+		System.out.print("0 ");
+    	for(int s = 0; s<1000;s++){
     		
-    		found=false;
+    		found = 0;
+    		dist_last = -1;
     		for(int i=0;i<ways.length;i++) {
-    			n = ways[i];
-    			if (!filter.contains(i) && isValid(Position.add(p,n))){
-    				d2 = Position.distance(p, t);
-    				if(d2<d) { lastID=i; d=d2; found = true; };
+    			current=Position.add(nextPos,ways[i]);
+    			
+	    		setBoard(current,0xFFDDDDDD);
+	    		
+    			boolean validRadius = true;
+    			
+    			// beachte den radius
+    			/*
+    			float rm=8;
+    			float rr=360/rm;
+    	    	for(int dr = 0; dr<=radius[bot]/2;dr++) {
+    		    	for(float r=0;r<rm;r++) {
+    		    		rp = current.getNext(Position.angToPosition(rr*r), dr);
+    		    		if(!isValid(rp)){
+    						validRadius=false;
+    						break;
+    		    		}
+    		    	}
+    		    	if(!validRadius) break;
+    	    	}
+    	    	*/
+    	           			
+    			if (validRadius && isValid(current) && !list.contains(current) && !filter.contains(current)){
+    				if(found<1) {
+    					found = 1;
+    					bestIndex=i;
+    					bestPos=current;
+    				}
+    				dist_current = Position.distance(current, end);
+    				if(dist_last<=0 || dist_current<dist_last) {
+    					bestPos=current;
+    					bestIndex=i;
+    					dist_last=dist_current;
+    					if(found<2) found = 2;
+    					if(dist_last<dist_best) dist_best=dist_last;
+     				}
     			}
     		}
-    		if(found) { list.add(lastID); p = ways[lastID]; }
+    		
+    		if(found>0) {
+    			nextPos=bestPos;
+    			if(Position.distance(nextPos, end)<=0) break;
+    			System.out.print("+"+waysStr[bestIndex]+" ");
+    			rlist.add(ways[bestIndex]);
+    			list.add(nextPos);
+    			setBoard(nextPos,0xFF00FF00);
+    		}
     		else {
-    			int index = list.size()-1;
-    			list.remove(index);
-    			if(list.size()<=0) break; // can not move?
-    			index--;
-      			doNotChoose.get(index).add(lastID);
-    			p = ways[list.get(index)];
-    			d = Position.distance(p, t);
+    			System.out.print("-");
+    			setBoard(nextPos,0xFFAAAAAA);
+    			if(list.size()<=0) break;
+     			int step=list.size()-1;
+    			list.remove(step);
+    			rlist.remove(step);
+    			filter.add(nextPos);
+    			step--;
+       			nextPos = (step<0) ? start : list.get(step);
+       			bestIndex=-1;
+       			if(step>=0)  {
+       				Position h = rlist.get(step);
+       				for(int i=0;i<ways.length;i++) { if(Position.equals(h, ways[i])){ bestIndex=i; break;}; }
+       			}
+       			System.out.print("("+((bestIndex<0) ? "0" : waysStr[bestIndex])+") ");
     		}
     	}
+    	System.out.println();
+
+    	nextPos = start;
+    	bestPos = new Position();
+    	for(Position w : rlist)
+    	{
+    		nextPos=Position.add(nextPos,w);
+    		if(Position.equals(bestPos, w)) continue;
+    		bestPos=w;
+    		wlist.add(nextPos);
+    	}
+    	
+		for(Position w : filter) setBoard(w, 0xFFAA88AA);
+    	for(Position w : list) setBoard(w, 0xFFCCCC00);
+    	setBoard(start, 0xFF00FFFF);
+    	setBoard(end, 0xFF0000FF);
 	}
     
 	void SpiralSearch(int bot, float size)
@@ -288,14 +466,50 @@ public class Client extends Thread {
     		sz = s+z/2;
 	    	for(float r=0;r<360;r++) {
 	    		d = Position.angToPosition(old_ang + sr + r);
-
-	    		if(findRGB(bot, p.getNext(bot, d, sz))) return;
+	    		if(findRGB(bot, p.getNext(d, sz))) return;
 	    	}
     	}
 	}
     
     boolean hasWhite = false;
+    
+	PowerupType BOMB = PowerupType.values()[0];
+	PowerupType RAIN = PowerupType.values()[1];
+	PowerupType SLOW = PowerupType.values()[2];
+	
+	boolean avoidPowerUps(int bot) {
+		float dist = 0;
+    	for(PowerUp powerupType : powerupTypes) {
+    		if(powerupType.type != SLOW) continue;
+    		dist = Position.distance(pos[bot],powerupType.pos);
+    		if(dist <= 15) { setDirection(bot,Position.add(pos[bot], Position.subtract(pos[bot], powerupType.pos))); return true; }
+    	}
+    	return false;
+	}
+    
+    boolean preferPowerUps(int bot) {
+    	Position t = null;
+    	Position target = null;
+    	float dist = 0;
+    	float min_dist = -1;
+
+    	for(PowerUp powerupType : powerupTypes) {
+    		if(powerupType.type == SLOW) continue;
+    		t = powerupType.pos;
+    		dist=Position.distance(pos[bot],t);
+    		if(min_dist<0||dist<min_dist) { min_dist = dist; target = t; }
+    	}
+    	if(target!=null) { setDirection(bot,target); return true; }
+    	
+    	setRandomDirection(bot);
+    	
+    	return false;
+    }
+    
     void search(int bot) {
+    	avoidPowerUps(bot);
+    	preferPowerUps(bot);
+
     	hasWhite = boardHasWhite();
     	
     	Position t = targetPos[bot];
@@ -303,31 +517,60 @@ public class Client extends Thread {
     	int rgb = getBoard(t);
     	int width = board[0].length;
     	int height = board.length;
-    	int size = width*height;
-
-    	if(!(infinity[bot] || !colorIsValid(bot,rgb) || dist<=7.5f)) return;
+    	int size = width*height*3;
     	
-    	if(name == "SpiralSearch") SpiralSearch(bot, size*3);
-    	else if(name == "CircleSearch") CircleSearch(bot, 200);
-    	else if(name == "RadiusSearch") RadiusSearch(bot, size*3);
+    	//if(!(myID == 0 && bot == 0)) return;
+    	
+    	if(!(infinity[bot] || !colorIsValid(bot,rgb) || dist<=radius[bot])) return;
+    	//SpiralSearch(bot, size*3);
+    	
+    	if(bot==1) SpiralSearch(bot, size);
+    	else if(bot==0) RadiusSearch(bot, size);
+    	else if(bot==2) SpiralSearch(bot, size);
+    	
+    	/*
+    	if(searchState[bot]==1){
+    		clearBoard();
+    		//SpiralSearch(bot, size*3);
+    		targetPos[bot] = new Position(tlr.nextInt(250, 750),tlr.nextInt(250, 750));
+    		searchState[bot]++;
+    	//if(name == "SpiralSearch") SpiralSearch(bot, size*3);
+    	//else if(name == "CircleSearch") CircleSearch(bot, 200);
+    	//else if(name == "RadiusSearch") RadiusSearch(bot, size*3);
+    	}
+    	
+    	if(searchState[bot]==1) {
+        	if((myID == 0 && bot == 0)) System.out.println("DijkstraSearch");
+        	DijkstraSearch(bot, width*10);
+        	searchState[bot]++;
+    	}
+    	
+    	if(searchState[bot]==2) {
+    		if((myID == 0 && bot == 0)) System.out.println("updateWayPoints: " + wayPoints.get(bot).size());
+    		updateWayPoints(bot);
+    		
+    		//if(!colorIsValid(bot,rgb) || dist<=radius[bot]) {
+    		//	clearWayPoints(bot);
+    		//}
+    	}
+    	*/
     }
     
-    void findObstacle(int i) {
-		
+    void findObstacle(int bot) {
 		int ts = Integer.MAX_VALUE;
 		int s = 0;
 		float a = 0;
-		float an = ang[i];
+		float an = ang[bot];
 		float tr = 0;
 		
 		boolean found = false;
-		Position p = pos[i];
+		Position p = pos[bot];
 		
-		int max = radius[i];
+		int max = radius[bot];
 		for(int r=0;r<360;r++){
 			a=an+r;
 			for(s=1;s<max;s++) {
-				if(!isValid(p.getNext(i, Position.angToPosition(a), s))) {
+				if(!isValid(p.getNext(Position.angToPosition(a), s))) {
 					if(s<ts) { found=true; ts = s; tr = a;}
 					break;
 				}
@@ -335,49 +578,71 @@ public class Client extends Thread {
 		}
 		
 		if(found){
-			//setDirection(i, oppositeAng(tr)+tlr.nextInt(-45, 45), radius[i]);
-			setInfiniteDirection(i,oppositeAng(tr)+tlr.nextInt(-45, 45));
-			hitWall[i]++;
+			setDirection(bot, oppositeAng(tr)+tlr.nextInt(-90, 90), radius[bot]*10);
+			//setInfiniteDirection(bot,oppositeAng(tr)+tlr.nextInt(-45, 45));
+			hitWall[bot]++;
 		}
-		else hitWall[i]=0;
+		else hitWall[bot]=0;
     }
     
     Position[] waitPos = new Position[]{new Position(),new Position(),new Position()};
+    boolean picture=false;
     
-    void setNewTarget(int i) {
-    	search(i);
+    void setNewTarget(int bot) {
+    	if(Position.equals(targetPos[bot], new Position())) targetPos[bot] = pos[bot];
+    	
+    	search(bot);
 
-    	if(wait[i]>=3) {
-    		if(Position.equals(waitPos[i],pos[i]))
+    	if((System.currentTimeMillis() - wait[bot]) >= 3) {
+    		if(Position.equals(waitPos[bot],pos[bot]))
     		{
-    			findObstacle(i);
+    			findObstacle(bot);
     		}
-    		else hitWall[i]=0;
+    		else hitWall[bot]=0;
     		
-    		waitPos[i]=pos[i];
-    		wait[i]=0;
-    	}
-    	else {
-    		wait[i]++;
+    		waitPos[bot]=pos[bot];
+    		wait[bot]=System.currentTimeMillis();
     	}
     }
     
-    void update(int i) {}
-
     boolean updateBoardFirstTime = true;
+
+    public long getMedian(long[] numArray) {
+    	Arrays.sort(numArray);
+    	
+    	int middle = numArray.length/2;
+    	long medianValue = 0; //declare variable 
+    	
+    	if (numArray.length%2 == 1) 
+    	    medianValue = numArray[middle];
+    	else
+    	   medianValue = (numArray[middle-1] + numArray[middle]) / 2;
+    	
+    	return medianValue;
+    }
     
-    public void updateBoard() {
+    public void updateBoard(boolean updateDebug) {
     	int width = board[0].length;
     	int height = board.length;
+    	int size = width*height;
     	
     	int rgb = 0;
     	int x = 0;
     	int y = 0;
-    	for(int i = 0; i<width*height; i++) {
+    	
+    	long[] timeList = new long[size];
+    	long t = 0;
+    	
+    	for(int i = 0; i<size; i++) {
     		if(updateBoardFirstTime || board[y][x] != 0){
+    			
+    			t = System.currentTimeMillis();
 	    		rgb = networkClient.getBoard(x,y);
+	    		timeList[i] = System.currentTimeMillis() - t;
+	    		
 	    		if(!updateBoardFirstTime || rgb!=0) {
 	    			board[y][x] = 0xFF000000 | rgb;
+	    			if(updateDebug) boardDebug[y][x] = board[y][x];
 	    		}
     		}
     		x++;
@@ -385,10 +650,19 @@ public class Client extends Thread {
     	}
     	
     	if(updateBoardFirstTime) updateBoardFirstTime=false;
+    	
+    	latency = (int) getMedian(timeList);
     }
+    
+    long generatePictureLastTime = System.currentTimeMillis();
     
     public void generatePicture()
     {
+    	if(!generatePictureEnabled) return;
+    	long time = System.currentTimeMillis();
+    	if((time - generatePictureLastTime) < generatePictureSec*1000) return;
+    	generatePictureLastTime = time;
+    	
     	int width = board[0].length;
     	int height = board.length;
     	BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
@@ -401,10 +675,11 @@ public class Client extends Thread {
     	int y = 0;
     	int[] buffer = new int[width*height];
     	for(int i = 0; i<buffer.length; i++) {
-    		if(x == t1[0] && y == t1[1]) buffer[i] = 0xFF000000;
-    		else if(x == t2[0] && y == t2[1]) buffer[i] = 0xFF000000;
-    		else if(x == t3[0] && y == t3[1]) buffer[i] = 0xFF000000;
-    		else buffer[i] =  board[y][x];
+    		//if(x == t1[0] && y == t1[1]) buffer[i] = 0xFF000000;
+    		//else if(x == t2[0] && y == t2[1]) buffer[i] = 0xFF000000;
+    		//else if(x == t3[0] && y == t3[1]) buffer[i] = 0xFF000000;
+    		//else
+    		buffer[i] = boardDebug[y][x];
     		x++;
     		if(x>=width) { x=0; y++; }
     	}
@@ -422,17 +697,32 @@ public class Client extends Thread {
 			System.err.println("Fehler: Konnte Boardbild nicht speichern!");
 		}
     }
- 
+    
+    void remove(int bot, PowerUp p) {
+    	float dist = 0;
+    	int i = -1;
+    	for(PowerUp q : powerupTypes) {
+    		i++;
+    		dist = Position.distance(p.pos, q.pos);
+    		if(p.type == q.type && dist <= 5)
+    		{
+    	    	System.out.println(p+" removed.");
+    			powerupTypes.remove(i);
+    			//if(bot>-1) setRandomDirection(bot);
+    			break;
+    		}
+    	}
+    }
+    
     public void run() {
     	tlr = ThreadLocalRandom.current();
     	
-		networkClient = new NetworkClient(host, name);
+		networkClient = new NetworkClient(host, name, "Enemy Rage Quit");
 		myID = networkClient.getMyPlayerNumber();
 		System.out.printf("Player: %d started\n", myID);
 
-		updateBoard();
-		//if(myID == 0) generatePicture();
-		
+		updateBoard(true);
+
 		// radius
 		radius[0] = networkClient.getInfluenceRadiusForBot(0);
 		radius[1] = networkClient.getInfluenceRadiusForBot(1);
@@ -444,53 +734,76 @@ public class Client extends Thread {
 		
 	    //long score = networkClient.getScore(0); // Punkte von rot
 		
+		wayPoints.add(new ArrayList<>());
+		wayPoints.add(new ArrayList<>());
+		wayPoints.add(new ArrayList<>());
+		
 		boolean foundStartPos = false;
-		ColorChange colorChange = new ColorChange();
-		int g = 0;
+		
+		Update update = new Update();
+		long time = 0;
+		
 		while(true){
-
-			while ((colorChange = networkClient.pullNextColorChange()) != null) {
+			time = System.currentTimeMillis();
+			while ((update = networkClient.pullNextUpdate()) != null) {
+				latency = (int) (System.currentTimeMillis() - time);
+				
 			    //verarbeiten von colorChange
-			    int player = colorChange.player; 
-			    int bot = colorChange.bot; 
-			    int x = colorChange.x; 
-			    int y = colorChange.y;
+			    int player = update.player; 
+			    int bot = update.bot; 
+			    int x = update.x; 
+			    int y = update.y;
+			    PowerupType type = update.type;
 			    Position p = new Position(x,y);
 			    
-			    if(player == myID){
-			    	
-			    	if(!Position.equals(pos[bot], p)){
-			    		setPos(bot, p);
-				    	update(bot);
-			    		
-			    		if(bot == 0) {
-
-			    			if(!foundStartPos){
-			    				//myID == 0 ? 0xFFFF0000 : (myID == 1 ? 0xFF00FF00 : (myID == 2 ? 0xFF0000FF : 0));
-			    				color = ColorPixel.getDominantColor(0xFF000000 | networkClient.getBoard(x,y));
-				    			System.out.printf("%d: %s color\n", myID, ColorPixel.getColorStr(color));
-			    			}
-			    			foundStartPos = true;
-			    		}
+			    if (type != null){
+			    	PowerUp powerUp = new PowerUp(p,type);
+			    	if(player == -1) {
+			    		powerupTypes.add(powerUp); // add
+			    		System.out.println(type+" "+x+" "+y);
 			    	}
+			    	else remove(bot, powerUp); // remove, it was used
+			    }
+			    
+			    if(player == myID){
+			    	//if(!Position.equals(pos[bot], p))
+			    	//Position dir = Position.normalize(Position.subtract(p,pos[bot]));
+			    	//p = Position.add(p, Position.mul(dir, 1+latency));
+		    		setPos(bot, p);
+			    	
+			    	/*
+			    	if(myID==0 && bot==1) {
+			    		float px = pos[bot].x;
+			    		float py = pos[bot].y;
+			    		targetPos[bot] = new Position((px > 500f ? -1: 1)*100+500,(px > 500f ? -1: 1)*100+500);
+			    	}
+			    	else targetPos[bot]= pos[bot];
+			    	*/
+	    			
+		    		if(bot == 0) {
+
+		    			if(!foundStartPos){
+		    				//myID == 0 ? 0xFFFF0000 : (myID == 1 ? 0xFF00FF00 : (myID == 2 ? 0xFF0000FF : 0));
+		    				color = ColorPixel.getDominantColor(0xFF000000 | networkClient.getBoard(x,y));
+			    			System.out.printf("%d: %s color\n", myID, ColorPixel.getColorStr(color));
+		    			}
+		    			foundStartPos = true;
+		    		}
 			    }
 			}
 			
 			if(foundStartPos) {
-				updateBoard();
+				updateBoard(true);
 				
 				setNewTarget(0);
 				setNewTarget(1);
 				setNewTarget(2);
 				
+				generatePicture();
+				
 				move(0);
 				move(1);
 				move(2);
-				
-				if(g==0) {
-					//generatePicture();
-				}
-				g++;
 			}
 			
 			try {
@@ -499,6 +812,8 @@ public class Client extends Thread {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
+			
+			time = System.currentTimeMillis();
 		}
     }
 }

@@ -6,6 +6,6 @@ public class Server extends Thread {
     	this.args=args;
     }
     public void run() {
-    	lenz.htw.kipifub.Server.main(args);
+    	lenz.htw.zpifub.Server.main(args);
     }
 }

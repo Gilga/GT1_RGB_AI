@@ -1,6 +1,6 @@
 package grid;
 
-import lenz.htw.kipifub.net.*;
+import lenz.htw.zpifub.net.*;
 
 public class Grid 
 {

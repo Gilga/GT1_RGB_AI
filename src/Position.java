@@ -7,11 +7,30 @@ public class Position {
 	public Position(float v) {this.x=v;this.y=v;}
 	public Position(float x, float y) {this.x=x;this.y=y;}
 	
+	public String toString() {
+		return "["+x+","+y+"]";
+	}
+	
+    public boolean equals (Object o){
+
+        if (o instanceof Position){
+
+        	Position p= (Position)o;
+
+          if ((x == p.x) &&(y == p.y))
+          {
+              return true;
+          }
+        }
+     return false;
+
+    }
+	
     public int[] toInt() {
     	return new int[]{(int)x,(int)y};
     }
 
-    public Position getNext(int i, Position direction, float r) {
+    public Position getNext(Position direction, float r) {
     	return new Position(x+(r*direction.x),y+(r*direction.y));
     }
 
@@ -36,6 +55,10 @@ public class Position {
     public static Position normalize(Position p) {
     	float length = magnitude(p);
     	return new Position(p.x/length,p.y/length);
+    }
+    
+    public static Position mul(Position p, float m) {
+    	return new Position(p.x*m,p.y*m);
     }
     
     public static Position mul(Position p, Position t) {

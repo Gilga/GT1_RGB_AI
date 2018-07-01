@@ -1,14 +1,11 @@
 import java.io.IOException;
 
-import lenz.htw.kipifub.ColorChange;
-import lenz.htw.kipifub.net.NetworkClient;
-
 public class GameStarter {
 
 	public static void main(String[] args) {
     	boolean test = true;
-    	String host = null;
-    	String name = "CLIENT";
+    	String host = "141.45.213.102";
+    	String name = "DirtyJoker";
     	
     	for(String arg : args){
     		int find = arg.indexOf("=");
