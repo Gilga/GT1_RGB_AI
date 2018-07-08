@@ -1,50 +1,44 @@
-import java.awt.Desktop;
-import java.awt.image.BufferedImage;
-import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
-import javax.imageio.ImageIO;
-
+import javafx.util.Pair;
 import lenz.htw.zpifub.*;
 import lenz.htw.zpifub.net.*;
 
 public class Client extends Thread {
-	
-	class PowerUp {
-		public Position pos = new Position();
-		public PowerupType type = null;
-		public PowerUp(Position pos, PowerupType type) { this.pos=pos; this.type=type; };
-		
-		public String toString() {
-			return ""+type+pos;
-		}
-	}
 	
 	NetworkClient networkClient =  null;
 	String host = null;
     String name = null;
     int myID = 0;
     int latency = 0;
-    int generatePictureSec = 10;
+    int generatePictureSec = 6;
     boolean generatePictureEnabled = false;
+    boolean hasWhite = false;
     
-    List<PowerUp> powerupTypes = new ArrayList<>();
+    int SPRAY = 0;
+    int BRUSH = 1;
+    int BIGBRUSH = 2;
+    int COUNT_BRUSH = 3;
+    
+    Board board = new Board();
+    
+    List<PowerUp> powerUps = new ArrayList<>();
     
     Client(String name, String host) throws IOException {
     	super(name);
         this.name = name;
         this.host = host;
+        this.board.setScreenshotHandler(new Screenshot(generatePictureSec));
     }
     
     ThreadLocalRandom tlr = null;
-    
-    int[][] board = new int[1024][1024];
-    int[][] boardDebug = new int[1024][1024];
-    
+
     int color = 0;
     int[] radius = new int[]{0,0,0}; // radius
     float[] ang = new float[]{0,0,0};
@@ -59,51 +53,20 @@ public class Client extends Thread {
 
     boolean[] infinity = new boolean[]{false,false,false};
     
-    void move(int bot) {
-    	Position p = pos[bot];
-    	Position t = getWayPoint(bot); //getPassablePosition(getWayPoint(bot),radius[bot]/2);
-    	Position d = new Position(t.x-p.x, t.y-p.y);
-
-		if(!Position.equals(oldDir[bot], d)){
-			oldDir[bot]=d;
-			networkClient.setMoveDirection(bot, d.x, d.y);
-    		//System.out.printf("(%d|%d){%d} [%f,%f] -> [%f,%f]\n", myID, bot, radius[bot], pos[bot].x, pos[bot].y, d.x, d.y);
-		}
-    }
-     
-    
-    boolean isValid(Position p) {
-    	//if(p.x<0||p.y<0||p.x>1023||p.y>1023) return false;
-    	int[] v = p.toInt();
-		//return board[v[1]][v[0]] != 0x0;
-		return networkClient.isWalkable(v[0], v[1]);
-    }
-
-    int getBoard(Position p){
-    	if(!isValid(p)) return 0x0;
-    	int[] v = p.toInt();
-    	//return board[v[1]][v[0]];
-    	return 0xFF000000 | networkClient.getBoard(v[0], v[1]);
-    }
-    
-    void setBoard(Position p, int color){
-    	if(!isValid(p)) return;
-    	int[] v = p.toInt();
-    	//board[v[1]][v[0]] = color;
-    	boardDebug[v[1]][v[0]] = color;
-     }
-    
-    void clearBoard() {
-    	Position p = new Position();
-    	for(p.y=0;p.y<board.length;p.y++){
-        	for(p.x=0;p.x<board[0].length;p.x++){
-        		int rgb = getBoard(p);
-        		if(!(rgb == 0x0 || rgb == 0xFFFFFFFF))
-        			setBoard(p, 0xFFFFFFFF);
-        	}
+    void move() {
+    	for(int brush=0; brush<COUNT_BRUSH; brush++) {
+	    	Position p = pos[brush];
+	    	Position t = getWayPoint(brush); //getPassablePosition(getWayPoint(bot),radius[bot]/2);
+	    	Position d = new Position(t.x-p.x, t.y-p.y);
+	
+			if(!Position.equals(oldDir[brush], d)){
+				oldDir[brush]=d;
+				networkClient.setMoveDirection(brush, d.x, d.y);
+	    		//System.out.printf("(%d|%d){%d} [%f,%f] -> [%f,%f]\n", myID, bot, radius[bot], pos[bot].x, pos[bot].y, d.x, d.y);
+			}
     	}
     }
-    
+
     boolean canMoveTo(int bot, Position t, float step) {
     	Position p=pos[bot];
 
@@ -114,18 +77,22 @@ public class Client extends Thread {
    	
     	step=(radius[bot]/2+1);
     	
-    	if(!isValid(Position.add(p, Position.mul(d,new Position(step))))) return false;
+    	if(!board.isValid(Position.add(p, Position.mul(d,new Position(step))))) return false;
 
     	for(float j=0;j<step;j++) //(dist/step)
     	{
     		p=Position.add(p, d);
-    		if(!isValid(p)) return false;
+    		if(!board.isValid(p)) return false;
     	}
 
     	return true;
     }
     
-    void setPos(int i, Position p) { oldPos[i]=pos[i]; pos[i] = p;  }
+    boolean touchedTarget(int bot, Position t) {
+    	return Position.isInLine(oldPos[bot], pos[bot], t);
+    }
+    
+    void setPos(int bot, Position p) { oldPos[bot]=pos[bot]; pos[bot] = p;  }
     
     float oppositeAng(float ang) {
     	return (ang+180) % 360;
@@ -153,7 +120,7 @@ public class Client extends Thread {
     	}
     }
     
-    void setDirection(int bot, Position t) {
+    void setTarget(int bot, Position t) {
     	if(!Position.equals(targetPos[bot], t)) {
     		ang[bot] = new Float(Position.calcRotationAngleInDegrees(pos[bot],t));
     		targetPos[bot]=t;
@@ -161,22 +128,11 @@ public class Client extends Thread {
     	}
     }
     
-    boolean boardHasWhite() {
-    	Position p = new Position();
-    	for(p.y=0;p.y<board.length;p.y++){
-        	for(p.x=0;p.x<board[0].length;p.x++){
-        		if(getBoard(p) == 0xFFFFFFFF) //isWalkable(p) &&
-        			return true;
-        	}
-    	}
-    	return false;
-    }
-    
     boolean colorIsValid(int bot, int rgb) {
 		   return (hasWhite && (
-					   (bot == 0 && ColorPixel.getBrightness(rgb) >= 1f)
-					|| (bot == 1 && rgb != color)
-					|| (bot == 2 && ColorPixel.isColorNotDominantOrWhite(rgb,color))
+					   (bot == SPRAY && ColorPixel.getBrightness(rgb) >= 1.0f)
+					|| (bot == BRUSH && rgb != color)
+					|| (bot == BIGBRUSH && ColorPixel.isColorNotDominantOrWhite(rgb,color))
 					))
 		|| (!hasWhite && !ColorPixel.isColorDominant(rgb,color));
     	//return (hasWhite && ColorPixel.getBrightness(rgb) >= 1f) ||
@@ -185,15 +141,16 @@ public class Client extends Thread {
     
     int[] searchState = new int[]{0,0,0};
     boolean findRGB(int bot, Position t){
-        int rgb = getBoard(t);
+    	if(!board.isValid(t)) return false;
         
-        if(!isValid(t)||ColorPixel.isColorDominant(rgb,color)) return false;
+    	//board.allWayPoints.get(bot).add(t);
+    	
+        int rgb = board.get(t);
+        if(ColorPixel.isColorDominant(rgb,color)) return false;
         
         if(colorIsValid(bot,rgb))
 		{
-        	setDirection(bot, t);
-            
-			//if(bot == 0) setBoard(t, color);
+        	setTarget(bot, t);
         	
         	return true;
 		}
@@ -224,22 +181,56 @@ public class Client extends Thread {
 	};
     
 	int wayPointIndex[] = new int[]{0,0,0};
-	ArrayList<ArrayList<Position>> wayPoints = new ArrayList<ArrayList<Position>>();
+	List<Pair<Integer, ArrayList<Position>>> wayPoints = new ArrayList<>();
 
 	boolean hasWayPoints(int bot)
 	{
-		return wayPoints.get(bot).size()>0;
+		return wayPoints.get(bot).getValue().size()>0;
+	}
+	
+	boolean isEndWayPointIndex(int bot) {
+		return wayPointIndex[bot]>=wayPoints.get(bot).getValue().size();
+	}
+	
+	Position getCurrentWayPoint(int bot) {
+		Pair<Integer, ArrayList<Position>> p = wayPoints.get(bot);
+		return p.getValue().get(p.getKey());
+	}
+	
+	void increaseWayPointIndex(int bot) {
+		if(!isEndWayPointIndex(bot)) wayPointIndex[bot]++;
 	}
 	
 	Position getWayPoint(int bot)
 	{
-		return hasWayPoints(bot) && wayPointIndex[bot]<wayPoints.get(bot).size() ? wayPoints.get(bot).get(wayPointIndex[bot]) : targetPos[bot];
+		Position wp = null;
+		/*
+		if(hasWayPoints(bot)) {
+			wp = getCurrentWayPoint(bot);
+			if(touchedTarget(bot, wp)) {
+				System.err.println("YES "+wp);
+				increaseWayPointIndex(bot);
+			}
+		}
+		else */
+			wp = targetPos[bot];
+
+		return wp;
+	}
+	
+	void addWayPoint(int bot, Position pos)
+	{
+		wayPoints.get(bot).getValue().add(pos);
 	}
 	
 	void clearWayPoints(int bot)
 	{
 		wayPointIndex[bot] = 0;
-		wayPoints.get(bot).clear();
+		wayPoints.get(bot).getValue().clear();
+	}
+	
+	boolean hasWayPoint(int bot, Position pos) {
+		return wayPoints.get(bot).getValue().contains(pos);
 	}
 	
 	void updateWayPoints(int bot)
@@ -250,12 +241,13 @@ public class Client extends Thread {
 		}
 			
 		Position w = getWayPoint(bot);
-		setBoard(w, 0xFF000000);
-		if(!isValid(w) || Position.distance(pos[bot],w) <= radius[bot] || !colorIsValid(bot,getBoard(getWayPoint(bot)))){
+		board.set(w, 0xFF000000);
+		
+		if(!board.isValid(w) || Position.distance(pos[bot],w) <= radius[bot] || !colorIsValid(bot,board.get(getWayPoint(bot)))){
 			wayPointIndex[bot]++;
 		}
 
-		if(wayPointIndex[bot]>=wayPoints.get(bot).size()){
+		if(wayPointIndex[bot]>=wayPoints.get(bot).getValue().size()){
 			clearWayPoints(bot);
 			searchState[bot]=0;
 			System.out.println("done.");
@@ -272,7 +264,7 @@ public class Client extends Thread {
     	for(int dr = 0; dr<=radius;dr++) {
 	    	for(float r=0;r<rm;r++) {
 	    		x = t.getNext(Position.angToPosition(rr*r), dr);
-	    		if(!isValid(x)){
+	    		if(!board.isValid(x)){
 					validRadius=false;
 	    		} else {
 	    			float d1 = Position.distance(x, t);
@@ -293,7 +285,7 @@ public class Client extends Thread {
 		ArrayList<Position> list = new ArrayList<>();
     	ArrayList<Position> rlist = new ArrayList<>();
     	ArrayList<Position> filter = new ArrayList<>();
-    	ArrayList<Position> wlist = wayPoints.get(bot);
+    	ArrayList<Position> wlist = wayPoints.get(bot).getValue();
     	
     	Position start = pos[bot];
     	Position end = targetPos[bot];
@@ -317,7 +309,7 @@ public class Client extends Thread {
     		for(int i=0;i<ways.length;i++) {
     			current=Position.add(nextPos,ways[i]);
     			
-	    		setBoard(current,0xFFDDDDDD);
+	    		board.set(current,0xFFDDDDDD);
 	    		
     			boolean validRadius = true;
     			
@@ -337,7 +329,7 @@ public class Client extends Thread {
     	    	}
     	    	*/
     	           			
-    			if (validRadius && isValid(current) && !list.contains(current) && !filter.contains(current)){
+    			if (validRadius && board.isValid(current) && !list.contains(current) && !filter.contains(current)){
     				if(found<1) {
     					found = 1;
     					bestIndex=i;
@@ -360,11 +352,11 @@ public class Client extends Thread {
     			System.out.print("+"+waysStr[bestIndex]+" ");
     			rlist.add(ways[bestIndex]);
     			list.add(nextPos);
-    			setBoard(nextPos,0xFF00FF00);
+    			board.set(nextPos,0xFF00FF00);
     		}
     		else {
     			System.out.print("-");
-    			setBoard(nextPos,0xFFAAAAAA);
+    			board.set(nextPos,0xFFAAAAAA);
     			if(list.size()<=0) break;
      			int step=list.size()-1;
     			list.remove(step);
@@ -384,6 +376,7 @@ public class Client extends Thread {
 
     	nextPos = start;
     	bestPos = new Position();
+    	
     	for(Position w : rlist)
     	{
     		nextPos=Position.add(nextPos,w);
@@ -392,16 +385,86 @@ public class Client extends Thread {
     		wlist.add(nextPos);
     	}
     	
-		for(Position w : filter) setBoard(w, 0xFFAA88AA);
-    	for(Position w : list) setBoard(w, 0xFFCCCC00);
-    	setBoard(start, 0xFF00FFFF);
-    	setBoard(end, 0xFF0000FF);
+		for(Position w : filter) board.set(w, 0xFFAA88AA);
+    	for(Position w : list) board.set(w, 0xFFCCCC00);
+    	
+    	board.set(start, 0xFF00FFFF);
+    	board.set(end, 0xFF0000FF);
+	}
+	
+	Position.Int[] defaultDirs = new Position.Int[]{
+		new Position.Int(0,1),
+		new Position.Int(0,-1),
+		new Position.Int(1,0),
+		new Position.Int(-1,0),
+		
+		new Position.Int(1,1),
+		new Position.Int(-1,-1),
+		new Position.Int(-1,1),
+		new Position.Int(1,-1),
+	};
+	
+	//List<Position.Int> dirs = new ArrayList<>();
+	//void resetDirs() { dirs = Arrays.asList(defaultDirs);	}
+	
+	void avoidBlackBorder(int bot)
+	{
+		Position p = pos[bot];
+		Position t = targetPos[bot];
+		Position next = null;
+
+		//Position d = p.getNormalizedDirection(t);
+		//Position r90d_cw = new Position(-1 * d.y, 1 * d.x); // CW
+		//Position r90d_cc = new Position(1 * d.y, -1 * d.x); // CC
+		//Position.Int n = d.toRoundInt();
+		
+		if(!isEndWayPointIndex(bot)) return;
+		clearWayPoints(bot);
+		board.allWayPoints.get(bot).clear();
+		
+		for(int i=0; i<1000; i++) {
+			
+			//dirs.remove(n);
+			List<Pair<Float, Position>> list = new ArrayList<>();
+			
+			for(Position.Int dir : defaultDirs) {
+				next = new Position(p.x+dir.x,p.y+dir.y);
+				if(!board.isValid(next) || hasWayPoint(bot,next)) continue;
+				//if(!board.isValid(next) || hasWayPoint(bot,next)) continue;
+				float dist = Position.distance(new Position(p.x+dir.x,p.y+dir.y),t);
+				list.add(new Pair<Float, Position>(dist,next));
+			}
+			
+			if(list.isEmpty()) {
+				System.err.println("Cannot move aynmore: "+p);
+				break;
+			}
+			
+			Collections.sort(list, new Comparator<Pair<Float, Position>>() {
+			    @Override
+			    public int compare(final Pair<Float, Position> o1, final Pair<Float, Position> o2) {
+					return o1.getKey() == o2.getKey() ? 0 : (o1.getKey() < o2.getKey() ? -1 : 1);
+			    }
+			});
+			
+			p = list.get(0).getValue();
+			addWayPoint(bot, p);
+			board.allWayPoints.get(bot).add(p);
+			//System.out.println("Add: "+p);
+			if(p == t) { System.out.println("YEs: "+p); break;}
+			
+		}
+		
+		//if(wayPoints.get(bot).getValue().size()>0) {
+			//board.allWayPoints.set(bot, wayPoints.get(bot).getValue());
+			//System.out.println(wayPoints.get(bot).getValue().size());
+		//}
 	}
     
 	void SpiralSearch(int bot, float size)
 	{
 		Position p = pos[bot];
-		Position d = Position.subtract(p, new Position(board[0].length/2, board.length/2));
+		Position d = Position.subtract(p, new Position(board.HWidth, board.HHeight));
 		
 		float WH = size/2;
 		float HH = size/2;
@@ -448,7 +511,7 @@ public class Client extends Thread {
 	        }
     	}
 	}
-	
+
 	void RadiusSearch(int bot, float size)
 	{
 		Position p = pos[bot];
@@ -458,8 +521,8 @@ public class Client extends Thread {
      	float z = radius[bot];
      	float sz = 0;
      	float sr = 0;
-     	float dd = Position.distance(p,new Position(board[0].length/2, board.length/2));
-     	float rr = dd + board[0].length/2 + board.length/2;
+     	float dd = Position.distance(p,new Position(board.HWidth, board.HHeight));
+     	float rr = dd + board.HWidth + board.HHeight;
      	
     	for(float s=1;s<size;s++) {
          	sr = 0; //randomAngle(); //non smooth option
@@ -471,18 +534,25 @@ public class Client extends Thread {
     	}
 	}
     
-    boolean hasWhite = false;
-    
-	PowerupType BOMB = PowerupType.values()[0];
-	PowerupType RAIN = PowerupType.values()[1];
-	PowerupType SLOW = PowerupType.values()[2];
+	int PowerUpRadius = 15;
 	
 	boolean avoidPowerUps(int bot) {
 		float dist = 0;
-    	for(PowerUp powerupType : powerupTypes) {
-    		if(powerupType.type != SLOW) continue;
-    		dist = Position.distance(pos[bot],powerupType.pos);
-    		if(dist <= 15) { setDirection(bot,Position.add(pos[bot], Position.subtract(pos[bot], powerupType.pos))); return true; }
+		float speed = board.isValid(oldPos[bot]) ? (Position.distance(pos[bot], oldPos[bot])+1) : 1;
+		
+    	for(PowerUp powerUp : powerUps) {
+    		if(powerUp.type != PowerUp.SLOW) continue;
+    		dist = Position.distance(pos[bot],powerUp.pos);
+    		if(dist <=(1+latency)*(radius[bot]+PowerUpRadius+speed)) {
+        		Position d = pos[bot].getNormalizedDirection(powerUp.pos);
+        		Position dirs[] = new Position[] {
+        				new Position(-1 * d.y, 1 * d.x), // r90d_cw
+        				new Position(1 * d.y, -1 * d.x), // r90d_cc
+        				new Position(-1 * d.y, -1 * d.x) // r180d_cw
+        		};
+    			setTarget(bot,Position.add(pos[bot], dirs[tlr.nextInt(0, dirs.length)]));
+    			return true;
+    		}
     	}
     	return false;
 	}
@@ -493,13 +563,13 @@ public class Client extends Thread {
     	float dist = 0;
     	float min_dist = -1;
 
-    	for(PowerUp powerupType : powerupTypes) {
-    		if(powerupType.type == SLOW) continue;
-    		t = powerupType.pos;
+    	for(PowerUp powerUp : powerUps) {
+    		if(powerUp.type == PowerUp.SLOW) continue;
+    		t = powerUp.pos;
     		dist=Position.distance(pos[bot],t);
     		if(min_dist<0||dist<min_dist) { min_dist = dist; target = t; }
     	}
-    	if(target!=null) { setDirection(bot,target); return true; }
+    	if(target!=null) { setTarget(bot,target); return true; }
     	
     	setRandomDirection(bot);
     	
@@ -507,26 +577,24 @@ public class Client extends Thread {
     }
     
     void search(int bot) {
-    	avoidPowerUps(bot);
     	preferPowerUps(bot);
-
-    	hasWhite = boardHasWhite();
+    	
+     	hasWhite = board.hasWhite();
     	
     	Position t = targetPos[bot];
     	float dist=Position.distance(pos[bot],t);
-    	int rgb = getBoard(t);
-    	int width = board[0].length;
-    	int height = board.length;
-    	int size = width*height*3;
+
+    	int rgb = board.isValid(t) ? board.get(t) : 0x0;
     	
-    	//if(!(myID == 0 && bot == 0)) return;
+    	//if(!(myID == 0 && bot == SPRAY)) return;
     	
     	if(!(infinity[bot] || !colorIsValid(bot,rgb) || dist<=radius[bot])) return;
-    	//SpiralSearch(bot, size*3);
+
+    	int searchRadius = board.Size*3;
     	
-    	if(bot==1) SpiralSearch(bot, size);
-    	else if(bot==0) RadiusSearch(bot, size);
-    	else if(bot==2) SpiralSearch(bot, size);
+    	if(bot==SPRAY) SpiralSearch(bot, searchRadius);
+    	else if(bot==BRUSH) SpiralSearch(bot, searchRadius);
+    	else if(bot==BIGBRUSH) SpiralSearch(bot, searchRadius);
     	
     	/*
     	if(searchState[bot]==1){
@@ -539,20 +607,6 @@ public class Client extends Thread {
     	//else if(name == "RadiusSearch") RadiusSearch(bot, size*3);
     	}
     	
-    	if(searchState[bot]==1) {
-        	if((myID == 0 && bot == 0)) System.out.println("DijkstraSearch");
-        	DijkstraSearch(bot, width*10);
-        	searchState[bot]++;
-    	}
-    	
-    	if(searchState[bot]==2) {
-    		if((myID == 0 && bot == 0)) System.out.println("updateWayPoints: " + wayPoints.get(bot).size());
-    		updateWayPoints(bot);
-    		
-    		//if(!colorIsValid(bot,rgb) || dist<=radius[bot]) {
-    		//	clearWayPoints(bot);
-    		//}
-    	}
     	*/
     }
     
@@ -570,7 +624,7 @@ public class Client extends Thread {
 		for(int r=0;r<360;r++){
 			a=an+r;
 			for(s=1;s<max;s++) {
-				if(!isValid(p.getNext(Position.angToPosition(a), s))) {
+				if(!board.isValid(p.getNext(Position.angToPosition(a), s))) {
 					if(s<ts) { found=true; ts = s; tr = a;}
 					break;
 				}
@@ -588,25 +642,47 @@ public class Client extends Thread {
     Position[] waitPos = new Position[]{new Position(),new Position(),new Position()};
     boolean picture=false;
     
-    void setNewTarget(int bot) {
-    	if(Position.equals(targetPos[bot], new Position())) targetPos[bot] = pos[bot];
-    	
-    	search(bot);
-
-    	if((System.currentTimeMillis() - wait[bot]) >= 3) {
-    		if(Position.equals(waitPos[bot],pos[bot]))
-    		{
-    			findObstacle(bot);
-    		}
-    		else hitWall[bot]=0;
+    void findTarget() {
+    	for(int bot=0; bot<COUNT_BRUSH; bot++) {
+	    	if(Position.equals(targetPos[bot], new Position())) targetPos[bot] = pos[bot];
+    		if(hasWayPoints(bot) && !isEndWayPointIndex(bot)) continue;
     		
-    		waitPos[bot]=pos[bot];
-    		wait[bot]=System.currentTimeMillis();
+	    	search(bot);
+	    	//avoidBlackBorder(bot);
+	    	
+	    	/*
+	    	if(searchState[bot]==1) {
+	        	if((myID == 0 && bot == SPRAY)) System.out.println("DijkstraSearch");
+	        	DijkstraSearch(bot, board.Size);
+	        	searchState[bot]++;
+	    	}
+	    	
+	    	if(searchState[bot]==2) {
+	    		if((myID == 0 && bot == SPRAY)) System.out.println("updateWayPoints: " + wayPoints.get(bot).getValue().size());
+	    		updateWayPoints(bot);
+	    		
+	    		//if(!colorIsValid(bot,rgb) || dist<=radius[bot]) {
+	    		//	clearWayPoints(bot);
+	    		//}
+	    	}
+	    	*/
+	    	
+	    	// QUICK AND DIRTY SOLUTON FOR COLLISION ON WALL
+	    	if((System.currentTimeMillis() - wait[bot]) >= 3) {
+	    		if(Position.equals(waitPos[bot],pos[bot]))
+	    		{
+	    			findObstacle(bot);
+	    		}
+	    		else hitWall[bot]=0;
+	    		
+	    		waitPos[bot]=pos[bot];
+	    		wait[bot]=System.currentTimeMillis();
+	    	}
+	    	
+	    	avoidPowerUps(bot);
     	}
     }
     
-    boolean updateBoardFirstTime = true;
-
     public long getMedian(long[] numArray) {
     	Arrays.sort(numArray);
     	
@@ -621,97 +697,36 @@ public class Client extends Thread {
     	return medianValue;
     }
     
-    public void updateBoard(boolean updateDebug) {
-    	int width = board[0].length;
-    	int height = board.length;
-    	int size = width*height;
-    	
-    	int rgb = 0;
-    	int x = 0;
-    	int y = 0;
-    	
-    	long[] timeList = new long[size];
-    	long t = 0;
-    	
-    	for(int i = 0; i<size; i++) {
-    		if(updateBoardFirstTime || board[y][x] != 0){
-    			
-    			t = System.currentTimeMillis();
-	    		rgb = networkClient.getBoard(x,y);
-	    		timeList[i] = System.currentTimeMillis() - t;
-	    		
-	    		if(!updateBoardFirstTime || rgb!=0) {
-	    			board[y][x] = 0xFF000000 | rgb;
-	    			if(updateDebug) boardDebug[y][x] = board[y][x];
-	    		}
-    		}
-    		x++;
-    		if(x>=width) { x=0; y++; }
-    	}
-    	
-    	if(updateBoardFirstTime) updateBoardFirstTime=false;
-    	
-    	latency = (int) getMedian(timeList);
-    }
-    
-    long generatePictureLastTime = System.currentTimeMillis();
-    
-    public void generatePicture()
-    {
-    	if(!generatePictureEnabled) return;
-    	long time = System.currentTimeMillis();
-    	if((time - generatePictureLastTime) < generatePictureSec*1000) return;
-    	generatePictureLastTime = time;
-    	
-    	int width = board[0].length;
-    	int height = board.length;
-    	BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-
-    	int[] t1 = targetPos[0].toInt();
-    	int[] t2 = targetPos[1].toInt();
-    	int[] t3 = targetPos[2].toInt();
-    	
-    	int x = 0;
-    	int y = 0;
-    	int[] buffer = new int[width*height];
-    	for(int i = 0; i<buffer.length; i++) {
-    		//if(x == t1[0] && y == t1[1]) buffer[i] = 0xFF000000;
-    		//else if(x == t2[0] && y == t2[1]) buffer[i] = 0xFF000000;
-    		//else if(x == t3[0] && y == t3[1]) buffer[i] = 0xFF000000;
-    		//else
-    		buffer[i] = boardDebug[y][x];
-    		x++;
-    		if(x>=width) { x=0; y++; }
-    	}
-    	
-    	image.setRGB(0,0,width,height,buffer, 0, width);
-    	
-		try {
-			File file = new File(myID + "_board.png");
-			ImageIO.write(image, "png", file);
-			
-		    Desktop dt = Desktop.getDesktop();
-		    dt.open(file);
-		    
-		} catch (Exception e) {
-			System.err.println("Fehler: Konnte Boardbild nicht speichern!");
-		}
-    }
-    
     void remove(int bot, PowerUp p) {
     	float dist = 0;
     	int i = -1;
-    	for(PowerUp q : powerupTypes) {
+    	for(PowerUp q : powerUps) {
     		i++;
     		dist = Position.distance(p.pos, q.pos);
     		if(p.type == q.type && dist <= 5)
     		{
     	    	System.out.println(p+" removed.");
-    			powerupTypes.remove(i);
+    	    	powerUps.remove(i);
     			//if(bot>-1) setRandomDirection(bot);
     			break;
     		}
     	}
+    }
+    
+    boolean foundMyColor = false;
+    
+    void findMyColor(int x, int y) {
+		if(foundMyColor) return;
+		
+		//myID == 0 ? 0xFFFF0000 : (myID == 1 ? 0xFF00FF00 : (myID == 2 ? 0xFF0000FF : 0));
+		int c = 0xFF000000 | networkClient.getBoard(x,y);
+		color = ColorPixel.getDominantColor(c);
+		
+		if(color != 0) {
+			System.out.printf("%d: %s color\n", myID, ColorPixel.getColorStr(color));
+			foundMyColor = true;
+		}
+		else System.err.printf("%d: %s color (INVALID)\n", myID, ColorPixel.getColorStr(c));
     }
     
     public void run() {
@@ -721,26 +736,17 @@ public class Client extends Thread {
 		myID = networkClient.getMyPlayerNumber();
 		System.out.printf("Player: %d started\n", myID);
 
-		updateBoard(true);
-
-		// radius
-		radius[0] = networkClient.getInfluenceRadiusForBot(0);
-		radius[1] = networkClient.getInfluenceRadiusForBot(1);
-		radius[2] = networkClient.getInfluenceRadiusForBot(2);
-
-		setInfiniteDirection(0,randomAngle());
-		setInfiniteDirection(1,randomAngle());
-		setInfiniteDirection(2,randomAngle());
+		// radius, setInfiniteDirection
+		for(int bot=0; bot<COUNT_BRUSH; bot++) {
+			radius[bot] = networkClient.getInfluenceRadiusForBot(bot);
+			if(bot == BRUSH) radius[bot] *= 2;
+			setInfiniteDirection(bot,randomAngle());
+			wayPoints.add(new Pair<>(0, new ArrayList<>()));
+		}
 		
-	    //long score = networkClient.getScore(0); // Punkte von rot
+		board.update(networkClient);
 		
-		wayPoints.add(new ArrayList<>());
-		wayPoints.add(new ArrayList<>());
-		wayPoints.add(new ArrayList<>());
-		
-		boolean foundStartPos = false;
-		
-		Update update = new Update();
+		Update update = null;
 		long time = 0;
 		
 		while(true){
@@ -749,6 +755,7 @@ public class Client extends Thread {
 				latency = (int) (System.currentTimeMillis() - time);
 				
 			    //verarbeiten von colorChange
+				long score = networkClient.getScore(0); // Punkte von rot
 			    int player = update.player; 
 			    int bot = update.bot; 
 			    int x = update.x; 
@@ -759,7 +766,7 @@ public class Client extends Thread {
 			    if (type != null){
 			    	PowerUp powerUp = new PowerUp(p,type);
 			    	if(player == -1) {
-			    		powerupTypes.add(powerUp); // add
+			    		powerUps.add(powerUp); // add
 			    		System.out.println(type+" "+x+" "+y);
 			    	}
 			    	else remove(bot, powerUp); // remove, it was used
@@ -770,6 +777,7 @@ public class Client extends Thread {
 			    	//Position dir = Position.normalize(Position.subtract(p,pos[bot]));
 			    	//p = Position.add(p, Position.mul(dir, 1+latency));
 		    		setPos(bot, p);
+		    		findMyColor(x,y);
 			    	
 			    	/*
 			    	if(myID==0 && bot==1) {
@@ -779,31 +787,17 @@ public class Client extends Thread {
 			    	}
 			    	else targetPos[bot]= pos[bot];
 			    	*/
-	    			
-		    		if(bot == 0) {
-
-		    			if(!foundStartPos){
-		    				//myID == 0 ? 0xFFFF0000 : (myID == 1 ? 0xFF00FF00 : (myID == 2 ? 0xFF0000FF : 0));
-		    				color = ColorPixel.getDominantColor(0xFF000000 | networkClient.getBoard(x,y));
-			    			System.out.printf("%d: %s color\n", myID, ColorPixel.getColorStr(color));
-		    			}
-		    			foundStartPos = true;
-		    		}
 			    }
 			}
 			
-			if(foundStartPos) {
-				updateBoard(true);
+			if(foundMyColor) {
+				board.update(networkClient);
 				
-				setNewTarget(0);
-				setNewTarget(1);
-				setNewTarget(2);
+				findTarget();
 				
-				generatePicture();
+				if(generatePictureEnabled) board.show(myID, powerUps);
 				
-				move(0);
-				move(1);
-				move(2);
+				move();
 			}
 			
 			try {

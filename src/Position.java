@@ -3,6 +3,21 @@ public class Position {
 	public float x = 0;
 	public float y = 0;
 	
+	public static class Int {
+		public int x = 0;
+		public int y = 0;
+		
+		public Int() {}
+		
+		public Int(int x, int y) { this.x=x; this.y=y; }
+		public Int(float x, float y) { this.x=(int)x; this.y=(int)y; }
+		
+	    public Int round(Position p) {
+	    	this.x=Math.round(p.x); Math.round(p.y);
+	    	return this;
+	    }
+	}
+	
 	public Position() {}
 	public Position(float v) {this.x=v;this.y=v;}
 	public Position(float x, float y) {this.x=x;this.y=y;}
@@ -26,8 +41,12 @@ public class Position {
 
     }
 	
-    public int[] toInt() {
-    	return new int[]{(int)x,(int)y};
+    public Int toInt() {
+    	return new Int(x,y);
+    }
+    
+    public Int toRoundInt() {
+    	return new Int().round(this);
     }
 
     public Position getNext(Position direction, float r) {
@@ -41,6 +60,80 @@ public class Position {
     Position getDirection(Position t, float dist) {
     	Position n = subtract(this,t);
     	return dist!=1 ? new Position(n.x/dist,n.y/dist) : n;
+    }
+    
+    public Position getAdd(Position t) {
+    	return Position.add(this,t);
+    }
+    
+    public Position getSubtract(Position t) {
+    	return Position.subtract(this,t);
+    }
+    
+    public Position getMul(Position t) {
+    	return Position.mul(this,t);
+    }
+    
+    public Position getMul(float t) {
+    	return Position.mul(this,t);
+    }
+    
+    public Position getDiv(Position t) {
+    	return Position.div(this,t);
+    }
+    
+    public Position getDiv(float t) {
+    	return Position.div(this,t);
+    }
+    
+    public Position getNormalize() {
+    	return Position.normalize(this);
+    }
+    
+    public void add(Position t) {
+    	Position n = Position.add(this,t);
+    	this.x=n.x;
+    	this.y=n.y;
+    }
+    
+    public void subtract(Position t) {
+    	Position n = Position.subtract(this,t);
+    	this.x=n.x;
+    	this.y=n.y;
+    }
+    
+    public void mul(Position t) {
+    	Position n = Position.mul(this,t);
+    	this.x=n.x;
+    	this.y=n.y;
+    }
+    
+    public void mul(float t) {
+    	Position n = Position.mul(this,t);
+    	this.x=n.x;
+    	this.y=n.y;
+    }
+    
+    public void div(Position t) {
+    	Position n = Position.div(this,t);
+    	this.x=n.x;
+    	this.y=n.y;
+    }
+    
+    public void div(float t) {
+    	Position n = Position.div(this,t);
+    	this.x=n.x;
+    	this.y=n.y;
+    }
+    
+    public void normalize() {
+    	Position n = Position.normalize(this);
+    	this.x=n.x;
+    	this.y=n.y;
+    }
+    
+    public float magnitude() {
+    	return Position.magnitude(this);
     }
     
     public static Position angToPosition(float ang) {
@@ -67,6 +160,10 @@ public class Position {
     
     public static Position div(Position p, Position t) {
     	return new Position(p.x/t.x,p.y/t.y);
+    }
+    
+    public static Position div(Position p, float m) {
+    	return new Position(p.x/m,p.y/m);
     }
     
     public static Position add(Position p, Position t) {
@@ -134,4 +231,14 @@ public class Position {
 
         return angle;
     }
+    
+    public static boolean isInLine(Position a, Position b, Position c) {
+       // if AC is horizontal
+       if (a.x == c.x) return b.x == c.x;
+       // if AC is vertical.
+       if (a.y == c.y) return b.y == c.y;
+       // match the gradients
+       return (a.x - c.x)*(a.y - c.y) == (c.x - b.x)*(c.y - b.y);
+    }
+    
 }

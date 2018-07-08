@@ -46,6 +46,6 @@ public class ColorPixel {
     }
     
 	public static String getColorStr(int color) {
-    	return (color==0xFF0000FF)?"blue":((color==0xFF00FF00)?"green":((color==0xFFFF0000)?"red":"?"));
+    	return (color==0xFF0000FF)?"blue":((color==0xFF00FF00)?"green":((color==0xFFFF0000)?"red":Integer.toHexString(color)));
     }
 }
